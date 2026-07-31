@@ -381,14 +381,39 @@ sale_item_id = 1
 for sale_id in range(1, NUM_SALES + 1):
     branch_id = random.choice(BRANCH_IDS)
 
-    employee_id = random.choice(
-        employee_ids_by_branch[branch_id]
-    )
-
     sale_day = random_date(
         START_DATE,
         END_DATE,
     )
+
+    branch_employees = employees_df[
+        employees_df["branch_id"] == branch_id
+    ].copy()
+
+    branch_employees["hire_date"] = pd.to_datetime(
+        branch_employees["hire_date"]
+    )
+
+    eligible_employees = branch_employees[
+        branch_employees["hire_date"] <= sale_day
+    ]
+
+    if eligible_employees.empty:
+        earliest_employee = branch_employees.sort_values(
+            "hire_date"
+        ).iloc[0]
+
+        employee_id = int(
+            earliest_employee["employee_id"]
+        )
+        sale_day = earliest_employee["hire_date"]
+
+    else:
+        employee_id = int(
+            random.choice(
+                eligible_employees["employee_id"].tolist()
+            )
+        )
 
     sale_date = sale_day + pd.Timedelta(
         hours=random.randint(9, 19),
