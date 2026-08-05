@@ -1,0 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#D4AF37"          # Metallic Gold
+backgroundColor = "#121212"       # Deep Obsidian / Rich Dark
+secondaryBackgroundColor = "#1E1E1E"# Soft Charcoal for cards/sidebars
+textColor = "#EAEAEA"             # Clean Off-White
+font = "sans serif"
