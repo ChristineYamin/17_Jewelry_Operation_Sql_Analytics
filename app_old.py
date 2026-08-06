@@ -1,106 +1,90 @@
-from pathlib import Path
-
-output_path = Path("/mnt/data/app_clean.py")
-
-code = r'''import pandas as pd
-import plotly.express as px
-import psycopg2
 import streamlit as st
+import pandas as pd
+import psycopg2
+import plotly.express as px
 
-
-# =========================================================
-# PAGE CONFIGURATION
-# =========================================================
 st.set_page_config(
-    page_title="Jewelry Operations Analytics",
-    page_icon="💎",
-    layout="wide",
+    page_title = "Jewelry Operations Analytics",
+    page_icon = "💎",
+    layout="wide"
 )
 
-
-# =========================================================
-# CUSTOM CSS
-# =========================================================
-st.markdown(
-    """
+st.title("💎 Jewlry Operations Analytics")
+st.write("SQL-powered dashboard for sales, customers, products, inventory, branches, and employees")
+st.markdown("""
     <style>
-        .block-container {
-            max-width: 1450px;
-            padding-top: 1.6rem;
-            padding-bottom: 3rem;
-        }
+    /* Global App Background */
+    .stApp {
+        background-color: #121212;
+        color: #EAEAEA;
+    }
 
-        h1 {
-            font-size: 2.25rem !important;
-            margin-bottom: 0.2rem !important;
-        }
+    /* Metric Cards Styling */
+    div[data-testid="stMetric"] {
+        background-color: #1E1E1E;
+        border: 1px solid #333333;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        transition: border 0.3s ease;
+    }
+    
+    div[data-testid="stMetric"]:hover {
+        border: 1px solid #D4AF37; /* Gold accent on hover */
+    }
 
-        h2 {
-            font-size: 1.45rem !important;
-            margin-top: 1.8rem !important;
-            padding-bottom: 0.45rem;
-            border-bottom: 2px solid rgba(184, 134, 11, 0.35);
-        }
+    div[data-testid="stMetric"] label {
+        color: #AAAAAA !important;
+        font-size: 0.9rem !important;
+    }
 
-        div[data-testid="stMetric"] {
-            background: rgba(184, 134, 11, 0.06);
-            border: 1px solid rgba(184, 134, 11, 0.22);
-            border-radius: 14px;
-            padding: 1rem;
-            min-height: 120px;
-        }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #D4AF37 !important; /* Gold metric numbers */
+        font-weight: 600;
+    }
 
-        div[data-testid="stMetricLabel"] {
-            font-weight: 600;
-        }
+    /* Subheaders and Titles styling */
+    h1, h2, h3 {
+        font-family: 'Helvetica Neue', sans-serif;
+        letter-spacing: 0.5px;
+    }
+    
+    h1 {
+        color: #F3E5AB; /* Champagne gold title */
+    }
 
-        div[data-testid="stDataFrame"] {
-            border: 1px solid rgba(128, 128, 128, 0.18);
-            border-radius: 12px;
-            overflow: hidden;
-        }
+    h2, h3 {
+        color: #EAEAEA;
+        border-bottom: 1px solid #2A2A2A;
+        padding-bottom: 8px;
+        margin-top: 2rem !important;
+    }
 
-        .dashboard-subtitle {
-            color: #6b7280;
-            font-size: 1rem;
-            margin-bottom: 1.4rem;
-        }
+    /* Dataframes and Tables */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #333333;
+        border-radius: 8px;
+        overflow: hidden;
+    }
 
-        .section-note {
-            color: #6b7280;
-            font-size: 0.92rem;
-            margin-top: -0.4rem;
-            margin-bottom: 0.8rem;
-        }
+    /* Sidebar Styling */
+    div[data-testid="stSidebar"] {
+        background-color: #181818;
+        border-right: 1px solid #2A2A2A;
+    }
 
-        .dashboard-footer {
-            text-align: center;
-            color: #8a8a8a;
-            font-size: 0.85rem;
-            padding-top: 2rem;
-        }
+    /* Success / Error Boxes */
+    div[data-testid="stSuccess"] {
+        background-color: rgba(212, 175, 55, 0.1);
+        border: 1px solid #D4AF37;
+        color: #F3E5AB;
+    }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 
-# =========================================================
-# CONSTANTS
-# =========================================================
-CHART_HEIGHT = 410
-PLOTLY_CONFIG = {
-    "displayModeBar": False,
-    "responsive": True,
-}
-
-
-# =========================================================
-# DATABASE FUNCTIONS
-# =========================================================
 @st.cache_resource
 def get_connection():
-    """Create and cache the PostgreSQL connection."""
     return psycopg2.connect(
         host=st.secrets["postgres"]["host"],
         port=st.secrets["postgres"]["port"],
@@ -110,352 +94,208 @@ def get_connection():
     )
 
 
-@st.cache_data(ttl=600)
+try:
+    connection = get_connection()
+    st.success("✅ Connected to PostgreSQL successfully!")
+except Exception as error:
+    st.error(f"Database connection failed: {error}")
+
+#----------------------------------------------
+# Add a reusable SQL 
+#---------------------------------------------
+@st.cache_data
 def run_query(query: str) -> pd.DataFrame:
-    """Run a SQL query and return the results as a DataFrame."""
     connection = get_connection()
 
     with connection.cursor() as cursor:
         cursor.execute(query)
-        columns = [column[0] for column in cursor.description]
+        column_names = [column[0] for column in cursor.description]
         rows = cursor.fetchall()
 
-    return pd.DataFrame(rows, columns=columns)
+    return pd.DataFrame(rows, columns=column_names)
 
-
-# =========================================================
-# DISPLAY HELPERS
-# =========================================================
-def make_numeric(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Convert selected columns to numeric values when they exist."""
-    dataframe = dataframe.copy()
-
-    for column in columns:
-        if column in dataframe.columns:
-            dataframe[column] = pd.to_numeric(
-                dataframe[column],
-                errors="coerce",
-            )
-
-    return dataframe
-
-
-def style_chart(figure, height: int = CHART_HEIGHT):
-    """Apply one consistent layout to every Plotly chart."""
-    figure.update_layout(
-        height=height,
-        margin=dict(l=20, r=20, t=60, b=30),
-        template="plotly_white",
-        legend_title_text="",
-        hoverlabel=dict(font_size=13),
-    )
-    return figure
-
-
-def show_chart(figure):
-    """Display a Plotly chart with the shared dashboard configuration."""
-    st.plotly_chart(
-        style_chart(figure),
-        use_container_width=True,
-        config=PLOTLY_CONFIG,
-    )
-
-
-def section_title(title: str, note: str | None = None):
-    """Display a consistent section heading."""
-    st.subheader(title)
-
-    if note:
-        st.markdown(
-            f'<div class="section-note">{note}</div>',
-            unsafe_allow_html=True,
-        )
-
-
-# =========================================================
-# DATABASE CONNECTION CHECK
-# =========================================================
-try:
-    get_connection()
-    st.sidebar.success("PostgreSQL connected")
-except Exception as error:
-    st.error(f"Database connection failed: {error}")
-    st.stop()
-
-
-# =========================================================
-# HEADER
-# =========================================================
-st.title("💎 Jewelry Operations Analytics")
-st.markdown(
-    """
-    <div class="dashboard-subtitle">
-        SQL-powered analytics for sales, customers, products, inventory,
-        branches, and employees.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# LOAD DATA
-# =========================================================
+#--------------------------------------------
+# Display the executive KPI cards
+#--------------------------------------------
 executive_df = run_query(
     "SELECT * FROM analytics.executive_summary;"
-)
-
-monthly_df = run_query(
-    """
-    SELECT *
-    FROM analytics.monthly_sales_summary
-    ORDER BY sales_month;
-    """
-)
-
-branch_df = run_query(
-    """
-    SELECT *
-    FROM analytics.branch_performance
-    ORDER BY net_revenue DESC;
-    """
-)
-
-customer_df = run_query(
-    """
-    SELECT *
-    FROM analytics.customer_summary
-    ORDER BY total_spent DESC;
-    """
-)
-
-customer_segment_raw = run_query(
-    "SELECT * FROM analytics.customer_segments;"
-)
-
-product_df = run_query(
-    """
-    SELECT *
-    FROM analytics.product_performance
-    ORDER BY gross_revenue DESC;
-    """
-)
-
-inventory_df = run_query(
-    """
-    SELECT *
-    FROM analytics.inventory_risk
-    ORDER BY stock_quantity ASC;
-    """
-)
-
-employee_df = run_query(
-    """
-    SELECT *
-    FROM analytics.employee_performance
-    ORDER BY net_revenue DESC;
-    """
-)
-
-
-# =========================================================
-# PREPARE DATA
-# =========================================================
-monthly_df["sales_month"] = pd.to_datetime(
-    monthly_df["sales_month"],
-    errors="coerce",
-)
-
-branch_df = make_numeric(
-    branch_df,
-    ["net_revenue", "estimated_net_profit"],
-)
-
-customer_df = make_numeric(
-    customer_df,
-    ["total_spent", "average_transaction_value"],
-)
-
-product_df = make_numeric(
-    product_df,
-    ["gross_revenue"],
-)
-
-employee_df = make_numeric(
-    employee_df,
-    ["net_revenue", "estimated_net_profit"],
-)
-
-
-# =========================================================
-# SIDEBAR FILTER
-# =========================================================
-st.sidebar.header("Dashboard Filters")
-
-branch_options = ["All Branches"] + sorted(
-    employee_df["branch_name"].dropna().unique().tolist()
-)
-
-selected_branch = st.sidebar.selectbox(
-    "Employee branch",
-    branch_options,
-)
-
-if selected_branch == "All Branches":
-    filtered_employee_df = employee_df.copy()
-else:
-    filtered_employee_df = employee_df[
-        employee_df["branch_name"] == selected_branch
-    ].copy()
-
-
-# =========================================================
-# EXECUTIVE OVERVIEW
-# =========================================================
-section_title(
-    "Executive Overview",
-    "High-level business performance indicators.",
 )
 
 if not executive_df.empty:
     summary = executive_df.iloc[0]
 
-    row_one = st.columns(3)
-    row_one[0].metric(
+    st.subheader("Executive Overview")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
         "Net Revenue",
-        f"{float(summary['net_revenue']) / 1_000_000_000:,.2f} B MMK",
+        f"{float(summary['net_revenue']) / 1_000_000_000:,.2f} B MMK"
     )
-    row_one[1].metric(
+
+    col2.metric(
         "Transactions",
-        f"{int(summary['total_transactions']):,}",
+        f"{int(summary['total_transactions']):,}"
     )
-    row_one[2].metric(
+
+    col3.metric(
         "Estimated Net Profit",
-        f"{float(summary['estimated_net_profit']) / 1_000_000_000:,.2f} B MMK",
+        f"{float(summary['estimated_net_profit']) / 1_000_000_000:,.2f} B MMK"
     )
 
-    row_two = st.columns(3)
-    row_two[0].metric(
+    col4, col5, col6 = st.columns(3)
+
+    col4.metric(
         "Average Transaction Value",
-        f"{float(summary['average_transaction_value']) / 1_000_000:,.2f} M MMK",
+        f"{float(summary['average_transaction_value']) / 1_000_000:,.2f} M MMK"
     )
-    row_two[1].metric(
+
+    col5.metric(
         "Units Sold",
-        f"{int(summary['total_units_sold']):,}",
+        f"{int(summary['total_units_sold']):,}"
     )
-    row_two[2].metric(
+
+    col6.metric(
         "Registered Customers",
-        f"{int(summary['registered_customers']):,}",
+        f"{int(summary['registered_customers']):,}"
     )
 
+#------------------------------------
+# Load monthly and branch data
+#-----------------------------------
 
-# =========================================================
-# SALES PERFORMANCE
-# =========================================================
-section_title(
-    "Sales Performance",
-    "Monthly revenue movement and branch-level performance.",
-)
+monthly_df = run_query("""
+    SELECT *
+    FROM analytics.monthly_sales_summary
+    ORDER BY sales_month;
+""")
 
-sales_col_one, sales_col_two = st.columns(2)
+branch_df = run_query("""
+    SELECT *
+    FROM analytics.branch_performance
+    ORDER BY net_revenue DESC;
+""")
 
-with sales_col_one:
+#--------------------------
+# Display two charts
+#-------------------------
+st.subheader("Sales Performance")
+
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    monthly_df["sales_month"] = pd.to_datetime(monthly_df["sales_month"])
+
     monthly_chart = px.line(
         monthly_df,
         x="sales_month",
         y="net_revenue",
         markers=True,
-        title="Monthly Net Revenue",
-        labels={
-            "sales_month": "Month",
-            "net_revenue": "Net Revenue (MMK)",
-        },
+        title="Monthly Net Revenue"
     )
-    monthly_chart.update_yaxes(tickformat=".2s")
-    show_chart(monthly_chart)
 
-with sales_col_two:
+    monthly_chart.update_layout(
+        xaxis_title="Month",
+        yaxis_title="Net Revenue (MMK)"
+    )
+
+    st.plotly_chart(monthly_chart, use_container_width=True)
+
+with chart_col2:
     branch_chart = px.bar(
         branch_df,
         x="branch_name",
         y="net_revenue",
-        title="Net Revenue by Branch",
-        labels={
-            "branch_name": "Branch",
-            "net_revenue": "Net Revenue (MMK)",
-        },
+        title="Net Revenue by Branch"
     )
-    branch_chart.update_yaxes(tickformat=".2s")
-    show_chart(branch_chart)
 
+    branch_chart.update_layout(
+        xaxis_title="Branch",
+        yaxis_title="Net Revenue (MMK)"
+    )
 
-# =========================================================
-# CUSTOMER ANALYSIS
-# =========================================================
-section_title(
-    "Customer Analysis",
-    "Customer spending, segmentation, and transaction behavior.",
+    st.plotly_chart(branch_chart, use_container_width=True)
+
+# ---------------------------------------
+# Load customer data
+# --------------------------------------
+customer_df = run_query("""
+    SELECT *
+    FROM analytics.customer_summary
+    ORDER BY total_spent DESC;
+""")
+
+customer_df["total_spent"] = pd.to_numeric(
+    customer_df["total_spent"]
 )
 
-top_customers = customer_df.head(10).sort_values(
-    "total_spent",
-    ascending=True,
+#------------------------------------------
+# Add the top-customer chart
+# --------------------------------------------
+
+st.subheader("Customer Analysis")
+
+top_customers = customer_df.head(10)
+
+customer_chart = px.bar(
+    top_customers,
+    x="customer_name",
+    y="total_spent",
+    title="Top 10 Customers by Spending"
 )
 
-customer_col_one, customer_col_two = st.columns([1.6, 1])
+customer_chart.update_layout(
+    xaxis_title="Customer",
+    yaxis_title="Total Spending (MMK)"
+)
 
-with customer_col_one:
-    customer_chart = px.bar(
-        top_customers,
-        x="total_spent",
-        y="customer_name",
-        orientation="h",
-        title="Top 10 Customers by Spending",
-        labels={
-            "customer_name": "Customer",
-            "total_spent": "Total Spending (MMK)",
-        },
+st.plotly_chart(customer_chart, use_container_width=True)
+
+# ------------------------------------------------
+# Add the customer segment donut chart
+# --------------------------------------
+
+customer_segment_raw = run_query("""
+    SELECT *
+    FROM analytics.customer_segments;
+""")
+
+segment_column = next(
+    (
+        column for column in
+        ["customer_segment", "segment", "segment_name"]
+        if column in customer_segment_raw.columns
+    ),
+    None
+)
+
+if segment_column:
+    customer_segment_df = (
+        customer_segment_raw
+        .groupby(segment_column)
+        .size()
+        .reset_index(name="customer_count")
     )
-    customer_chart.update_xaxes(tickformat=".2s")
-    show_chart(customer_chart)
 
-with customer_col_two:
-    segment_column = next(
-        (
-            column
-            for column in [
-                "customer_segment",
-                "segment",
-                "segment_name",
-            ]
-            if column in customer_segment_raw.columns
-        ),
-        None,
+    customer_segment_chart = px.pie(
+        customer_segment_df,
+        names=segment_column,
+        values="customer_count",
+        hole=0.55,
+        title="Customer Segments"
     )
 
-    if segment_column:
-        customer_segment_df = (
-            customer_segment_raw.groupby(segment_column)
-            .size()
-            .reset_index(name="customer_count")
-        )
+    st.plotly_chart(
+        customer_segment_chart,
+        use_container_width=True
+    )
 
-        customer_segment_chart = px.pie(
-            customer_segment_df,
-            names=segment_column,
-            values="customer_count",
-            hole=0.58,
-            title="Customer Segments",
-        )
-        customer_segment_chart.update_traces(
-            textposition="inside",
-            textinfo="percent",
-        )
-        show_chart(customer_segment_chart)
-    else:
-        st.info("No customer segment column was found.")
 
-st.markdown("#### Customer Summary")
+# ---------------------------------------------
+# Add the customer table
+# ----------------------------------------
+st.write("### Customer Summary")
+
 st.dataframe(
     customer_df[
         [
@@ -463,141 +303,178 @@ st.dataframe(
             "city",
             "purchase_count",
             "total_spent",
-            "average_transaction_value",
+            "average_transaction_value"
         ]
     ],
     use_container_width=True,
-    hide_index=True,
-    height=390,
+    hide_index=True
 )
 
+#-------------------------------------------------
+# Load product and inventory data
+#------------------------------------------------
+product_df = run_query("""
+    SELECT *
+    FROM analytics.product_performance
+    ORDER BY gross_revenue DESC;
+""")
 
-# =========================================================
-# PRODUCT AND INVENTORY ANALYSIS
-# =========================================================
-section_title(
-    "Product & Inventory Analysis",
-    "Product revenue contribution and current inventory risk.",
+inventory_df = run_query("""
+    SELECT *
+    FROM analytics.inventory_risk
+    ORDER BY stock_quantity ASC;
+""")
+
+product_df["gross_revenue"] = pd.to_numeric(
+    product_df["gross_revenue"]
 )
 
-top_products = product_df.head(10).sort_values(
-    "gross_revenue",
-    ascending=True,
+#--------------------------------------------------
+# Add the top-products chart
+# ------------------------------------------------
+st.subheader("Product & Inventory Analysis")
+
+top_products = product_df.head(10)
+
+product_chart = px.bar(
+    top_products,
+    x="product_name",
+    y="gross_revenue",
+    color="category",
+    title="Top 10 Products by Gross Revenue"
 )
 
+product_chart.update_layout(
+    xaxis_title="Product",
+    yaxis_title="Gross Revenue (MMK)"
+)
+
+st.plotly_chart(product_chart, use_container_width=True)
+
+# -------------------------------------------
+# Product category Revenue donut chart
+# ------------------------------------------
 category_revenue_df = (
-    product_df.groupby(
-        "category",
-        as_index=False,
-    )["gross_revenue"]
+    product_df
+    .groupby("category", as_index=False)["gross_revenue"]
     .sum()
 )
 
-product_col_one, product_col_two = st.columns([1.6, 1])
+category_revenue_chart = px.pie(
+    category_revenue_df,
+    names="category",
+    values="gross_revenue",
+    hole=0.55,
+    title="Gross Revenue by Product Category"
+)
 
-with product_col_one:
-    product_chart = px.bar(
-        top_products,
-        x="gross_revenue",
-        y="product_name",
-        color="category",
-        orientation="h",
-        title="Top 10 Products by Gross Revenue",
-        labels={
-            "product_name": "Product",
-            "gross_revenue": "Gross Revenue (MMK)",
-            "category": "Category",
-        },
-    )
-    product_chart.update_xaxes(tickformat=".2s")
-    show_chart(product_chart)
-
-with product_col_two:
-    category_revenue_chart = px.pie(
-        category_revenue_df,
-        names="category",
-        values="gross_revenue",
-        hole=0.58,
-        title="Gross Revenue by Product Category",
-    )
-    category_revenue_chart.update_traces(
-        textposition="inside",
-        textinfo="percent",
-    )
-    show_chart(category_revenue_chart)
+st.plotly_chart(
+    category_revenue_chart,
+    use_container_width=True
+)
 
 
+
+
+
+# ------------------------------------------------
+# Add the inventory-risk table
+#------------------------------------------------
+st.write("### Inventory Risk")
+
+st.dataframe(
+    inventory_df[
+        [
+            "branch_name",
+            "product_name",
+            "category",
+            "stock_quantity",
+            "reorder_level",
+            "inventory_status"
+        ]
+    ],
+    use_container_width=True,
+    hide_index=True
+)
+
+# --------------------------------------------
+# Inventory Status Donut Chart
+# ------------------------------------------
 inventory_status_df = (
-    inventory_df.groupby("inventory_status")
+    inventory_df
+    .groupby("inventory_status")
     .size()
     .reset_index(name="product_count")
 )
 
-inventory_col_one, inventory_col_two = st.columns([1, 2])
-
-with inventory_col_one:
-    inventory_status_chart = px.pie(
-        inventory_status_df,
-        names="inventory_status",
-        values="product_count",
-        hole=0.58,
-        title="Inventory Status",
-    )
-    inventory_status_chart.update_traces(
-        textposition="inside",
-        textinfo="percent",
-    )
-    show_chart(inventory_status_chart)
-
-with inventory_col_two:
-    st.markdown("#### Inventory Risk")
-    st.dataframe(
-        inventory_df[
-            [
-                "branch_name",
-                "product_name",
-                "category",
-                "stock_quantity",
-                "reorder_level",
-                "inventory_status",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-        height=CHART_HEIGHT,
-    )
-
-
-# =========================================================
-# BRANCH AND EMPLOYEE PERFORMANCE
-# =========================================================
-section_title(
-    "Branch & Employee Performance",
-    "Employee sales contribution filtered by branch.",
+inventory_status_chart = px.pie(
+    inventory_status_df,
+    names="inventory_status",
+    values="product_count",
+    hole=0.55,
+    title="Inventory Status"
 )
 
-top_employees = filtered_employee_df.head(10).sort_values(
-    "net_revenue",
-    ascending=True,
+st.plotly_chart(
+    inventory_status_chart,
+    use_container_width=True
 )
+# ---------------------------------------
+# Load employee data
+# -----------------------------------------
+employee_df = run_query("""
+    SELECT *
+    FROM analytics.employee_performance
+    ORDER BY net_revenue DESC;
+""")
+
+employee_df["net_revenue"] = pd.to_numeric(
+    employee_df["net_revenue"]
+)
+
+# ---------------------------------------------
+# Add a branch filter and employee chart
+#----------------------------------------------
+st.subheader("Branch & Employee Performance")
+
+branch_options = ["All Branches"] + sorted(
+    employee_df["branch_name"].dropna().unique().tolist()
+)
+
+selected_branch = st.selectbox(
+    "Select Branch",
+    branch_options
+)
+
+if selected_branch == "All Branches":
+    filtered_employee_df = employee_df.copy()
+else:
+    filtered_employee_df = employee_df[
+        employee_df["branch_name"] == selected_branch
+    ]
+
+top_employees = filtered_employee_df.head(10)
 
 employee_chart = px.bar(
     top_employees,
-    x="net_revenue",
-    y="employee_name",
+    x="employee_name",
+    y="net_revenue",
     color="branch_name",
-    orientation="h",
-    title="Top Employees by Net Revenue",
-    labels={
-        "employee_name": "Employee",
-        "net_revenue": "Net Revenue (MMK)",
-        "branch_name": "Branch",
-    },
+    title="Top Employees by Net Revenue"
 )
-employee_chart.update_xaxes(tickformat=".2s")
-show_chart(employee_chart)
 
-st.markdown("#### Employee Performance Summary")
+employee_chart.update_layout(
+    xaxis_title="Employee",
+    yaxis_title="Net Revenue (MMK)"
+)
+
+st.plotly_chart(employee_chart, use_container_width=True)
+
+# ------------------------------------
+# Add the employee table
+# ------------------------------------
+st.write("### Employee Performance Summary")
+
 st.dataframe(
     filtered_employee_df[
         [
@@ -607,29 +484,9 @@ st.dataframe(
             "transaction_count",
             "units_sold",
             "net_revenue",
-            "estimated_net_profit",
+            "estimated_net_profit"
         ]
     ],
     use_container_width=True,
-    hide_index=True,
-    height=390,
+    hide_index=True
 )
-
-
-# =========================================================
-# FOOTER
-# =========================================================
-st.markdown(
-    """
-    <div class="dashboard-footer">
-        Jewelry Operations SQL Analytics · PostgreSQL · Streamlit · Plotly
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-'''
-
-output_path.write_text(code, encoding="utf-8")
-
-print(f"Created: {output_path}")
-print(f"Lines: {len(code.splitlines())}")
